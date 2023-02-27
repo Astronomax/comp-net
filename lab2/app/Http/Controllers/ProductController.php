@@ -8,6 +8,7 @@ use Illuminate\Foundation\Bus\DispatchesJobs;
 use Illuminate\Foundation\Validation\ValidatesRequests;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Str;
 
 class ProductController extends ApiController
 {
@@ -18,10 +19,13 @@ class ProductController extends ApiController
         $product = $request->validate([
             'name' => 'required',
             'description' => 'required',
-            'image_url' => 'required',
         ]);
+        $fileName = Str::random(10).'.jpg';
+        $request->file('image')->move(public_path('/'), $fileName);
+        $photoPath = url('/'.$fileName);
+        $product['image_url'] = $photoPath;
         $product_id = Product::createProduct($product);
-        return $this->createSuccessResponse(["product_id" => $product_id], 201);
+        return $this->createSuccessResponse(['product_id' => $product_id], 201);
     }
     function show(Request $request, int $productId): JsonResponse
     {

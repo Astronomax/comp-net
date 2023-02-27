@@ -12,8 +12,7 @@ class Product extends Model
     protected $table = 'products';
     protected $fillable = [
         'name',
-        'description',
-        'image_url',
+        'description'
     ];
 
     public static function getById(string $id): \stdClass|null
