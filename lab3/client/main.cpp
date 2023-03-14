@@ -5,12 +5,16 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <string>
+#include <fstream>
+#include <iostream>
 
 int main(int argc, char *argv[]) {
-    if (argc < 3) {
-        fprintf(stderr, "Too few arguments. Expected `hostname` and `port`\n");
+    if (argc < 4) {
+        fprintf(stderr, "Too few arguments. Expected `hostname` `port` `file path`\n");
         exit(0);
     }
+
     int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (sock_fd < 0) {
         fprintf(stderr, "Error occurred while opening socket\n");
@@ -33,23 +37,52 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    printf("Please enter the message for server: ");
-    char buffer[256];
-    bzero(buffer, 256);
-    fgets(buffer, 255, stdin);
+    char *file_path = argv[3];
+    char request[256];
+    sprintf(request, "POST %s HTTP/1.1"
+                            "Host: 127.0.0.1:8000"
+                            "User-Agent: hw3 client"
+                            "Accept: */*"
+                            "Content-Length: 0", file_path);
 
-    int n = write(sock_fd, buffer, strlen(buffer));
+    int n = write(sock_fd, request, strlen(request));
     if (n < 0) {
         fprintf(stderr, "Error occurred while writing\n");
         exit(0);
     }
-    bzero(buffer, 256);
-    n = read(sock_fd, buffer, 255);
+    char response[200000];
+    n = read(sock_fd, response, 200000);
+
     if (n < 0) {
         fprintf(stderr, "Error occurred while reading\n");
         exit(0);
     }
-    printf("Message from server: %s\n", buffer);
+    char *ptr = response;
+    while(n > 0) {
+        ptr += n;
+        n = read(sock_fd, ptr, 200000 - (ptr - response));
+    }
+    n = ptr - response;
+    std::cout << n << std::endl;
+
+    char *a = file_path, *b = strtok(file_path, "/");
+    while(b != nullptr) {
+        a = b;
+        b = strtok(nullptr, "/");
+    }
+
+    char *res = response;
+    for(int i = 0; i < 3; i++) {
+        while (*res != '\r') {
+            ++res;
+        }
+        ++res;
+    }
+    ++res;
+    std::ofstream f(a, std::ostream::binary);
+
+    f.write(res, n - (res - response));
+    f.close();
     close(sock_fd);
     return 0;
 }
