@@ -13,11 +13,12 @@
 #include <algorithm>
 #include <atomic>
 #include <fcntl.h>
-#include "../../socket_read/socket_read.hpp"
+#include "../../parse_http/parse_http.hpp"
 #include "../../open_tcp_connection/open_tcp_connection.hpp"
-#include <unordered_map>
+#include "../../data_batch/data_batch.hpp"
 #include <string>
 #include <sys/stat.h>
+#include "../../read_http/read_http.hpp"
 
 struct session_routine_args {
     int sock_fd;
@@ -29,68 +30,68 @@ inline bool file_exists (const std::string& name)  {
     return (stat (name.c_str(), &buffer) == 0);
 }
 
-std::string parse_host(const std::string& request) {
-    std::string_view view(request);
-    ssize_t pos = view.find(' ');
+response serialize_response_from_file(const std::string &filename) {
+    std::string response_str;
+    data_batch batch;
+    std::ifstream f(filename, std::ostream::binary);
+    ssize_t n = f.readsome(batch.data, data_batch::BUFFER_SIZE);
+    while(n > 0) {
+        response_str += std::string(batch.data, n);
+        n = f.readsome(batch.data, data_batch::BUFFER_SIZE);
+    }
+    f.close();
+    return parse_response(response_str);
+}
+
+void deserialize_response_to_file(const std::string &filename, const response &response) {
+    auto response_str = to_string(response);
+    std::ofstream f(filename, std::ostream::binary);
+    f.write(response_str.data(), response_str.size());
+    f.close();
+}
+
+int parse_status(const response &response) {
+    std::string_view view(response.first_line);
+    size_t pos = view.find(' ');
     view = view.substr(pos + 1, view.size() - pos - 1);
-    pos = view.find(' ');
-    view = view.substr(0, pos);
-    return std::string(view);
+    view = view.substr(0, view.find(' '));
+    return stoi(std::string(view));
 }
 
 void* session_routine(void* args_) {
     auto args = reinterpret_cast<session_routine_args*>(args_);
 
-    const size_t BUFFER_SIZE = 2048;
-    std::string buffer(BUFFER_SIZE, 0);
-
-    std::string request;
-    fcntl(args->sock_fd, F_SETFL, (fcntl(args->sock_fd, F_GETFL, 0) & ~O_NONBLOCK));
-    ssize_t n = read(args->sock_fd, buffer.data(), data_batch::BUFFER_SIZE);
-    fcntl(args->sock_fd, F_SETFL, (fcntl(args->sock_fd, F_GETFL, 0) | O_NONBLOCK));
-    while(n > 0) {
-        request += buffer.substr(0, n);
-        n = read(args->sock_fd, buffer.data(), data_batch::BUFFER_SIZE);
-    }
+    auto request = read_request(args->sock_fd);
 
     std::hash<std::string> hasher;
-    std::string hash = std::to_string(hasher(request));
-    std::string hostname = parse_host(request);
-    int sock_fd = open_tcp_connection(hostname, 80);
+    std::string hash = std::to_string(hasher(to_string(request)));
+    int sock_fd = open_tcp_connection(request.header["Host"], 80);
 
-    if(!file_exists(hash)) {
-        n = send(sock_fd, request.data(), request.size(), 0);
-        if (n < 0) {
-            fprintf(stderr, "Error occurred while sending \n");
-            return new int(1);
+    if (!file_exists("cache_" + hash)) {
+        write_request(sock_fd, request);
+        auto response = read_response(sock_fd);
+        auto last_modified = response.header.find("Last-Modified");
+        auto etag = response.header.find("ETag");
+        if (last_modified != response.header.end() &&
+            etag != response.header.end()) {
+            deserialize_response_to_file("cache_" + hash, response);
         }
-
-        fcntl(sock_fd, F_SETFL, (fcntl(sock_fd, F_GETFL, 0) & ~O_NONBLOCK));
-        n = read(sock_fd, buffer.data(), data_batch::BUFFER_SIZE);
-        fcntl(sock_fd, F_SETFL, (fcntl(sock_fd, F_GETFL, 0) | O_NONBLOCK));
-
-        std::ofstream f(hash, std::ostream::binary);
-        while(n > 0) {
-            f.write(buffer.data(), n);
-            n = read(sock_fd, buffer.data(), data_batch::BUFFER_SIZE);
-        }
-        f.close();
+        write_response(args->sock_fd, response);
     } else {
-        //check if file is fresh
-        //update if needs
-    }
-
-    std::ifstream f(hash, std::ostream::binary);
-    n = f.readsome(buffer.data(), buffer.size());
-    while(n > 0) {
-        n = send(args->sock_fd, buffer.data(), n, 0);
-        if (n < 0) {
-            fprintf(stderr, "Error occurred while sending \n");
-            return new int(1);
+        auto cached_response = serialize_response_from_file("cache_" + hash);
+        auto last_modified = cached_response.header["Last-Modified"];
+        auto etag = cached_response.header["ETag"];
+        request.header["If-Modified-Since"] = last_modified;
+        request.header["If-None-Match"] = etag;
+        write_request(sock_fd, request);
+        auto response = read_response(sock_fd);
+        int status = parse_status(response);
+        if(status == 304) {
+            write_response(args->sock_fd, cached_response);
+        } else {
+            write_response(args->sock_fd, response);
         }
-        n = f.readsome(buffer.data(), buffer.size());
     }
-    f.close();
 
     close(args->sock_fd);
     close(sock_fd);
