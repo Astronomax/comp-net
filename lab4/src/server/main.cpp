@@ -58,6 +58,12 @@ int parse_status(const response &response) {
     return stoi(std::string(view));
 }
 
+void log_status(int status) {
+    std::ofstream log("log.txt", std::ios::app);
+    log << status << "\n";
+    log.close();
+}
+
 void* session_routine(void* args_) {
     auto args = reinterpret_cast<session_routine_args*>(args_);
 
@@ -76,6 +82,7 @@ void* session_routine(void* args_) {
             etag != response.header.end()) {
             deserialize_response_to_file("cache_" + hash, response);
         }
+        log_status(parse_status(response));
         write_response(args->sock_fd, response);
     } else {
         auto cached_response = serialize_response_from_file("cache_" + hash);
@@ -87,8 +94,10 @@ void* session_routine(void* args_) {
         auto response = read_response(sock_fd);
         int status = parse_status(response);
         if(status == 304) {
+            log_status(parse_status(cached_response));
             write_response(args->sock_fd, cached_response);
         } else {
+            log_status(parse_status(response));
             write_response(args->sock_fd, response);
         }
     }
