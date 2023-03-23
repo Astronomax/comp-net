@@ -30,4 +30,6 @@ std::ostream& operator<<(std::ostream& os, const response& response);
 std::ostream& operator<<(std::ostream& os, const request& request);
 std::string to_string(const response& response);
 std::string to_string(const request& request);
+response serialize_response_from_file(const std::string &filename);
+void deserialize_response_to_file(const std::string &filename, const response &response);
 #endif //SERVER_PARSE_HTTP_HPP

@@ -31,10 +31,8 @@ int main(int argc, char *argv[]) {
     request.header["Host"] = target_hostname;
     write_request(sock_fd, request);
 
-    std::ofstream f(output_filename, std::ostream::binary);
     auto response = read_response(sock_fd);
-    f.write(response.body.data(), response.body.size());
-    f.close();
+    deserialize_response_to_file(output_filename, response);
     close(sock_fd);
     return 0;
 }

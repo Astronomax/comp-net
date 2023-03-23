@@ -1,5 +1,7 @@
 #include <sstream>
+#include <fstream>
 #include "parse_http.hpp"
+#include "../data_batch/data_batch.hpp"
 
 static const std::string CRLF = "\r\n";
 
@@ -16,10 +18,12 @@ http_header parse_header(std::string_view &view) {
     http_header header;
     while(!view.empty()) {
         auto line = read_line(view);
-        size_t delimiter_pos = line.find(delimiter);
-        std::string field_name = std::string(line.substr(0, delimiter_pos));
-        std::string value = std::string(line.substr(delimiter_pos + delimiter.size()));
-        header[field_name] = value;
+        if(!line.empty()) {
+            size_t delimiter_pos = line.find(delimiter);
+            std::string field_name = std::string(line.substr(0, delimiter_pos));
+            std::string value = std::string(line.substr(delimiter_pos + delimiter.size()));
+            header[field_name] = value;
+        } else break; //body
         if(view.find(CRLF) == 0) {
             view = view.substr(2, view.size() + 2);
             break; //body
@@ -84,4 +88,24 @@ std::string to_string(const request& request) {
     std::ostringstream ss;
     ss << request;
     return ss.str();
+}
+
+response serialize_response_from_file(const std::string &filename) {
+    std::string response_str;
+    data_batch batch;
+    std::ifstream f(filename, std::ostream::binary);
+    ssize_t n = f.readsome(batch.data, data_batch::BUFFER_SIZE);
+    while(n > 0) {
+        response_str += std::string(batch.data, n);
+        n = f.readsome(batch.data, data_batch::BUFFER_SIZE);
+    }
+    f.close();
+    return parse_response(response_str);
+}
+
+void deserialize_response_to_file(const std::string &filename, const response &response) {
+    auto response_str = to_string(response);
+    std::ofstream f(filename, std::ostream::binary);
+    f.write(response_str.data(), response_str.size());
+    f.close();
 }
