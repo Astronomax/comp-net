@@ -5,7 +5,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-
 #include <iostream>
 #include <fstream>
 #include <pthread.h>
@@ -13,12 +12,10 @@
 #include <algorithm>
 #include <atomic>
 #include <fcntl.h>
-#include "../../parse_http/parse_http.hpp"
-#include "../../open_tcp_connection/open_tcp_connection.hpp"
-#include "../../data_batch/data_batch.hpp"
 #include <string>
 #include <sys/stat.h>
-#include "../../read_http/read_http.hpp"
+#include "../../my_http/my_http.hpp"
+#include "../../open_tcp_connection/open_tcp_connection.hpp"
 
 struct session_routine_args {
     int sock_fd;
@@ -28,14 +25,6 @@ struct session_routine_args {
 inline bool file_exists (const std::string& name)  {
     struct stat buffer;
     return (stat (name.c_str(), &buffer) == 0);
-}
-
-int parse_status(const response &response) {
-    std::string_view view(response.first_line);
-    size_t pos = view.find(' ');
-    view = view.substr(pos + 1, view.size() - pos - 1);
-    view = view.substr(0, view.find(' '));
-    return stoi(std::string(view));
 }
 
 void log_status(std::string hostname, int status) {
@@ -65,7 +54,9 @@ void* session_routine(void* args_) {
 
     if(std::find(blacklist.begin(), blacklist.end(), hostname) != blacklist.end()) {
         response response;
-        response.first_line = "HTTP/1.1 403 Forbidden";
+        response.http_ver = "HTTP/1.1";
+        response.status_code = 403;
+        response.msg = "Forbidden";
         log_status(hostname, 403);
         write_response(args->sock_fd, response);
         return new int(0);
@@ -83,7 +74,7 @@ void* session_routine(void* args_) {
             etag != response.header.end()) {
             deserialize_response_to_file("cache_" + hash, response);
         }
-        log_status(hostname, parse_status(response));
+        log_status(hostname, response.status_code);
         write_response(args->sock_fd, response);
     } else {
         auto cached_response = serialize_response_from_file("cache_" + hash);
@@ -93,12 +84,12 @@ void* session_routine(void* args_) {
         request.header["If-None-Match"] = etag;
         write_request(sock_fd, request);
         auto response = read_response(sock_fd);
-        int status = parse_status(response);
-        if(status == 304) {
-            log_status(hostname, parse_status(response));
+
+        if(response.status_code == 304) {
+            log_status(hostname, cached_response.status_code);
             write_response(args->sock_fd, cached_response);
         } else {
-            log_status(hostname, parse_status(response));
+            log_status(hostname, response.status_code);
             write_response(args->sock_fd, response);
         }
     }

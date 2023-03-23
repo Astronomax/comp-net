@@ -1,15 +1,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <unistd.h>
-#include <cstring>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
 #include <string>
-#include <fstream>
-#include <iostream>
-#include "../../parse_http/parse_http.hpp"
-#include "../../read_http//read_http.hpp"
+#include "../../my_http/my_http.hpp"
 #include "../../open_tcp_connection/open_tcp_connection.hpp"
 
 int main(int argc, char *argv[]) {
@@ -25,9 +18,9 @@ int main(int argc, char *argv[]) {
     std::string target_route(argv[4]);
 
     request request;
-    std::string format = "GET %s HTTP/1.0";
-    request.first_line = std::string(format.size() + target_route.size() - 2, 0);
-    sprintf(request.first_line.data(), format.data(), target_route.data());
+    request.method = "GET";
+    request.path = target_route;
+    request.http_ver = "HTTP/1.0";
     request.header["Host"] = target_hostname;
     write_request(sock_fd, request);
 
