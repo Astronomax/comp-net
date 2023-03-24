@@ -30,9 +30,9 @@ astronomax@astronomax:~/CompNet/lab4/build$ ./server 8000
 Waiting for clients...
 
 ```
-**Аргументы сервера**: `{server port}`  
+**Аргументы сервера**: `{port}`  
 Список заблокированных хостов должен находиться в файле `blacklist` рядом с исполняемым файлом.  
-В процессе работы сервер будет писать лог в файл `log.txt` в формате `{requested host}: {status code}`.  
+В процессе работы сервер будет писать лог в файл `log.txt` в формате `{host}: {status code}`.  
 Также в процессе работы сервер будет создавать возле себя файлы с названием `cache_{request hash}`, в которых будет кешировать ответы на запросы, содержащие поле `Last-Modified`.   
 Сервер способен принимать запросы любого типа (в т.ч. `POST`).
 
@@ -63,9 +63,9 @@ Scanning dependencies of target client
 [ 75%] Building CXX object CMakeFiles/client.dir/my_http/my_http.cpp.o
 [100%] Linking CXX executable client
 [100%] Built target client
-astronomax@astronomax:~/CompNet/lab4/build$ ./client 127.0.0.1 8000 gaia.cs.umass.edu /wireshark-labs/HTTP-wireshark-file3.html
+astronomax@astronomax:~/CompNet/lab4/build$ ./client 127.0.0.1:8000/gaia.cs.umass.edu/wireshark-labs/HTTP-wireshark-file3.html
 astronomax@astronomax:~/CompNet$ 
 ```
-**Аргументы клиента**: `{server ip} {server port} {requested host} {requested path}`  
-Клиент отправляет на прокси-сервер с указанными `{server ip}` и `{server port}` запрос в формате `GET {requested path} HTTP/1.0\r\nHost: {requested host}\r\n\r\n`.  
+**Аргументы клиента**: `{uri}`  
+Клиент отправляет запрос на указанный uri в формате `GET {uri.path}{uri.query} HTTP/1.0\r\nHost: {uri.host}\r\n\r\n`.  
 Ответ сервера записывается в файл `response`, находящийся рядом с исполняемым файлом клиента.
