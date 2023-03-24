@@ -8,7 +8,9 @@ add_executable(server
         open_tcp_connection/open_tcp_connection.hpp
         open_tcp_connection/open_tcp_connection.cpp
         my_http/my_http.hpp
-        my_http/my_http.cpp)
+        my_http/my_http.cpp
+        uri/uri.hpp
+        uri/uri.cpp)
 target_compile_options(server PUBLIC "-pthread")
 target_link_libraries(server "${CMAKE_THREAD_LIBS_INIT}")
 add_executable(client
@@ -16,4 +18,6 @@ add_executable(client
         open_tcp_connection/open_tcp_connection.hpp
         open_tcp_connection/open_tcp_connection.cpp
         my_http/my_http.hpp
-        my_http/my_http.cpp)
+        my_http/my_http.cpp
+        uri/uri.hpp
+        uri/uri.cpp)

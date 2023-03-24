@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include "../../my_http/my_http.hpp"
 #include "../../open_tcp_connection/open_tcp_connection.hpp"
+#include "../../uri/uri.hpp"
 
 struct session_routine_args {
     int sock_fd;
@@ -50,21 +51,23 @@ void* session_routine(void* args_) {
     auto blacklist = read_blacklist();
 
     auto request = read_request(args->sock_fd);
-    std::string hostname = request.header["Host"];
+    uri uri = uri::Parse(request.path.substr(1, request.path.size() - 1));
+    request.header["Host"] = uri.host;
+    request.path = uri.path;
 
-    if(std::find(blacklist.begin(), blacklist.end(), hostname) != blacklist.end()) {
+    if(std::find(blacklist.begin(), blacklist.end(), uri.host) != blacklist.end()) {
         response response;
         response.http_ver = "HTTP/1.1";
         response.status_code = 403;
         response.msg = "Forbidden";
-        log_status(hostname, 403);
+        log_status(uri.host, 403);
         write_response(args->sock_fd, response);
         return new int(0);
     }
 
     std::hash<std::string> hasher;
     std::string hash = std::to_string(hasher(to_string(request)));
-    int sock_fd = open_tcp_connection(hostname, 80);
+    int sock_fd = open_tcp_connection(uri.host, (uri.port.empty() ? 80 : stoi(uri.port)));
     if (!file_exists("cache_" + hash)) {
         write_request(sock_fd, request);
         auto response = read_response(sock_fd);
@@ -74,7 +77,7 @@ void* session_routine(void* args_) {
             etag != response.header.end()) {
             deserialize_response_to_file("cache_" + hash, response);
         }
-        log_status(hostname, response.status_code);
+        log_status(uri.host, response.status_code);
         write_response(args->sock_fd, response);
     } else {
         auto cached_response = serialize_response_from_file("cache_" + hash);
@@ -86,10 +89,10 @@ void* session_routine(void* args_) {
         auto response = read_response(sock_fd);
 
         if(response.status_code == 304) {
-            log_status(hostname, cached_response.status_code);
+            log_status(uri.host, cached_response.status_code);
             write_response(args->sock_fd, cached_response);
         } else {
-            log_status(hostname, response.status_code);
+            log_status(uri.host, response.status_code);
             write_response(args->sock_fd, response);
         }
     }
