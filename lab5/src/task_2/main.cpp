@@ -120,7 +120,7 @@ int main(int argc, char *argv[]) {
     auto encoded_username = base_64_encoder::encode(username);
     fwrite(sock_fd, "%s\r\n", encoded_username.data());
     if (parse_code(read_data(sock_fd)) != 334) {
-        fprintf(stderr, "Expected code 250 after `username`\n");
+        fprintf(stderr, "Expected code 334 after `username`\n");
         return 1;
     }
     auto encoded_password = base_64_encoder::encode(password);
