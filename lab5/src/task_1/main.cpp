@@ -1,6 +1,5 @@
 #include <cstdio>
 #include <cstring>
-#include <curl/curl.h>
 #include <algorithm>
 #include <string>
 #include <fstream>

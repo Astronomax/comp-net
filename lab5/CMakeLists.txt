@@ -9,3 +9,8 @@ add_executable(task_1
         open_tcp_connection/open_tcp_connection.cpp)
 include_directories(${CURL_INCLUDE_DIR})
 target_link_libraries(task_1 ${CURL_LIBRARIES})
+
+add_executable(task_2
+        "src/task_2/main.cpp"
+        open_tcp_connection/open_tcp_connection.hpp
+        open_tcp_connection/open_tcp_connection.cpp)
