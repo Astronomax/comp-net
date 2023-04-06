@@ -1,106 +1,54 @@
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <stdio.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <stdlib.h>
+#include <winsock2.h>
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
-#include <string.h>
-#include "open_tcp_connection/open_tcp_connection.hpp"
 #include "uri/uri.hpp"
+#include <utility>
+#include <strings.h>
 
-int readServ(int s) {
-    int rc;
+int open_tcp_connection(std::string hostname, int port) {
+    int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock_fd < 0) {
+        fprintf(stderr, "Error occurred while opening socket\n");
+        exit(1);
+    }
+    hostent *host = gethostbyname(hostname.data());
+    if (host == nullptr) {
+        fprintf(stderr, "Error: host not found\n");
+        exit(1);
+    }
+    sockaddr_in serv_addr{};
+    serv_addr.sin_family = AF_INET;
+    memcpy((char*)&serv_addr.sin_addr.s_addr,
+          (char*)host->h_addr,
+          host->h_length);
+    serv_addr.sin_port = htons(port);
+    if (connect(sock_fd, reinterpret_cast<sockaddr *>(&serv_addr), sizeof(serv_addr)) < 0) {
+        fprintf(stderr, "Error occurred while connecting to socket\n");
+        exit(1);
+    }
+    return sock_fd;
+}
+
+std::string readServ(int s) {
     fd_set fdr;
     FD_ZERO(&fdr);
     FD_SET(s,&fdr);
     timeval timeout{};
-    timeout.tv_sec = 1;   ///зададим  структуру времени со значением 1 сек
+    timeout.tv_sec = 1;
     timeout.tv_usec = 0;
+
+    std::string res;
+    char buff[512];
+    int rc;
     do {
-        char buff[512] ={' '};
-        recv(s,&buff,512,0);  ///получаем данные из потока
-        std::cout << buff;
-        rc = select(s+1,&fdr,nullptr,nullptr,&timeout);    ///ждём данные для чтения в потоке 1 сек. подробнее о select
-    } while(rc);     ///проверяем результат
-    return 2;
-}
-
-int init_data(std::string addr, int s) {
-    send(s,"PASV\r\n",strlen("PASV\r\n"),0);
-    char buff[128];
-    recv(s,buff,128,0);
-    std::cout << buff; ////выводим на экран полученную от сервера строку
-    int a,b;
-    char *tmp_char;
-    tmp_char = strtok(buff,"(");
-    tmp_char = strtok(nullptr,"(");
-    tmp_char = strtok(tmp_char, ")");
-    int c,d,e,f;
-    sscanf(tmp_char, "%d,%d,%d,%d,%d,%d",&c,&d,&e,&f,&a,&b);
-    int len;
-    sockaddr_in address{};
-    int result;
-    int port = a*256 + b;
-    int ds = socket(AF_INET, SOCK_STREAM,0);
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = inet_addr(addr.data());    ///addr - у меня глобальная переменная с адресом сервера
-    address.sin_port = htons(port);
-    len = sizeof(address);
-    result = connect(ds, (sockaddr *)&address, len);
-    if (result == -1) {
-        perror("oops: client");
-        return -1;
-    }
-    return 0;
-}
-
-int login(int s) {
-    std::cout << "Введите имя: "; char name[64]; std::cin >> name;
-    char str[512];
-    sprintf(str,"USER %s\r\n",name);
-    send(s,str,strlen(str),0);
-    readServ(s);
-    std::cout << "Введите пароль: "; char pass[64]; std::cin >> pass;
-    sprintf(str,"PASS %s\r\n",pass);
-    send(s,str,strlen(str),0);
-    readServ(s);
-    return 0;
-}
-
-
-int get(char *file, int s, int ds) {
-    char str[512];
-    sprintf(str,"RETR %s\r\n",file);
-    send(s,str,strlen(str),0);
-
-    //получение размера файла
-    char size[512];
-    recv(s,size,512,0);
-    std::cout << size;
-
-    char *tmp_size;
-    tmp_size = strtok(size,"(");
-    tmp_size = strtok(nullptr,"(");
-    tmp_size = strtok(tmp_size, ")");
-    tmp_size = strtok(tmp_size, " ");
-
-    int file_size;
-    sscanf(tmp_size,"%d",&file_size);
-    FILE *f;
-    f = fopen(file, "wb");   ///важно чтобы файл писался в бинарном режиме
-    int read = 0;  ///изначально прочитано 0 байт
-    do {
-        char buff[2048];   ////буфе для данных
-        int readed = recv(ds,buff,sizeof(buff),0);   ///считываем данные с сервера. из сокета данных
-        fwrite(buff,1,readed,f);   ///записываем считанные данные в файл
-        read += readed;  ///увеличиваем количество скачанных данных
-    } while (read < file_size);
-    fclose(f);
-    std::cout << "Готово. Ожидание ответа сервера...\n";
-    return 0;
+        std::fill(std::begin(buff), std::end(buff), 512);
+        int n = recv(s, buff,511,0);
+        if(n <= 0) break;
+        res += std::string(buff);
+        rc = select(0, &fdr,nullptr,nullptr, &timeout);
+    } while(rc);
+    return res;
 }
 
 int main(int argc, char *argv[]) {
@@ -108,6 +56,8 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Too few arguments. Expected {uri}`\n");
         return 1;
     }
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
 
     uri uri = uri::Parse(argv[1]);
     if (uri.protocol != "ftp") {
@@ -115,8 +65,65 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // open control channel
     int sock_fd = open_tcp_connection(uri.host, (uri.port.empty() ? 21 : stoi(uri.port)));
-    readServ(sock_fd);
-    close(sock_fd);
+    std::cout << readServ(sock_fd) << std::endl;
+    // open control channel
+
+    // authorization
+    std::string name = "TestUser";
+    char str[512];
+    sprintf(str,"USER %s\r\n", name.data());
+    send(sock_fd, str, (int)strlen(str),0);
+    std::cout << readServ(sock_fd) << std::endl;
+    std::string pass = "1234";
+    sprintf(str,"PASS %s\r\n", pass.data());
+    send(sock_fd, str, (int)strlen(str),0);
+    std::cout << readServ(sock_fd) << std::endl;
+    // authorization
+
+    // open data channel
+    send(sock_fd,"PASV\r\n",strlen("PASV\r\n"),0);
+    std::string data = readServ(sock_fd);
+    std::cout << data << std::endl;
+    std::string_view view(data);
+    view.remove_prefix(view.find('(') + 1);
+    view = view.substr(0, view.find(')'));
+    std::string in_braces(view);
+    int buffer[6];
+    sscanf(in_braces.data(), "%d,%d,%d,%d,%d,%d",
+           &buffer[0], &buffer[1], &buffer[2], &buffer[3], &buffer[4], &buffer[5]);
+    int ds = open_tcp_connection(std::move(uri.host), buffer[4] * 256 + buffer[5]);
+    // open data channel
+
+    while(true) {
+        std::cout << "Please, enter the command: ";
+        fflush(stdout);
+        std::string command;
+        std::cin >> command;
+        if(command == "listfiles") {
+            sprintf(str,"MLSD\r\n");
+            send(sock_fd, str, (int)strlen(str), 0);
+            std::cout << readServ(sock_fd) << std::endl;
+            std::cout << readServ(ds) << std::endl;
+        } else if(command == "loadfile") {
+            std::string filename;
+            std::cout << "Please, enter the filename: ";
+            fflush(stdout);
+            std::cin >> filename;
+            sprintf(str,"RETR %s\r\n", filename.data());
+            send(sock_fd, str, (int)strlen(str),0);
+            std::cout << readServ(sock_fd) << std::endl;
+            FILE *f = fopen(filename.data(), "wb");
+            data = readServ(ds);
+            fwrite(data.data(),1, data.size(), f);
+            fclose(f);
+        } else if(command == "exit") {
+            break;
+        } else {
+            std::cout << "Unknown command!" << std::endl;
+        }
+    }
+    WSACleanup();
     return 0;
 }
