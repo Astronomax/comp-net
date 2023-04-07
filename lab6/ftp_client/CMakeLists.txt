@@ -8,4 +8,6 @@ add_executable(ftp_client main.cpp
         open_tcp_connection/open_tcp_connection.cpp
         uri/uri.hpp
         uri/uri.cpp)
-target_link_libraries(ftp_client wsock32 ws2_32)
+if(WIN32)
+    target_link_libraries(ftp_client wsock32 ws2_32)
+endif()

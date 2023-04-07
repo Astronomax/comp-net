@@ -1,18 +1,17 @@
 #include "open_tcp_connection.hpp"
 
+#ifdef WIN32
+#include <winsock2.h>
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#endif
+
 #include <cstdio>
 #include <cstdlib>
-#include <unistd.h>
 #include <cstring>
 #include <string>
-
-#ifdef WIN32
-    #include <winsock2.h>
-#else
-    #include <sys/socket.h>
-    #include <netinet/in.h>
-    #include <netdb.h>
-#endif
 
 
 int open_tcp_connection(std::string hostname, int port) {

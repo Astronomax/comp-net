@@ -1,11 +1,19 @@
+#ifdef WIN32
 #include <winsock2.h>
-#include <cstdio>
-#include <cstdlib>
-#include <iostream>
-#include "uri/uri.hpp"
 #include <utility>
 #include <strings.h>
+#else
+#include <sys/socket.h>
+#endif
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <unistd.h>
+#include "uri/uri.hpp"
 #include <fstream>
+#include <cstdarg>
 #include "open_tcp_connection/open_tcp_connection.hpp"
 
 std::string readServ(int s) {
@@ -21,7 +29,7 @@ std::string readServ(int s) {
     int rc;
     do {
         std::fill(std::begin(buff), std::end(buff), 512);
-        int n = recv(s, buff,511,0);
+        int n = recv(s, buff, 511, 0);
         if(n <= 0) break;
         res += std::string(buff);
         rc = select(0, &fdr,nullptr,nullptr, &timeout);
@@ -44,19 +52,11 @@ int pasv(int sock_fd) {
 }
 
 void sock_write(int sock_fd, const char *message) {
-#ifdef WIN32
     send(sock_fd, message, (int)strlen(message), 0);
-#else
-    write(sock_fd, message, (int)strlen(message), 0);
-#endif
 }
 
 void sock_write(int sock_fd, const char *message, int len) {
-#ifdef WIN32
     send(sock_fd, message, len, 0);
-#else
-    write(sock_fd, message, len, 0);
-#endif
 }
 
 void sock_fwrite(int sock_fd, const char *format, ...) {
@@ -66,10 +66,14 @@ void sock_fwrite(int sock_fd, const char *format, ...) {
     std::string message(len, 0);
     vsprintf(message.data(), format, argv);
     va_end(argv);
-#ifdef WIN32
     send(sock_fd, message.data(), (int)message.size(), 0);
+}
+
+void sock_close(int sock_fd) {
+#ifdef WIN32
+    closesocket(sock_fd);
 #else
-    write(sock_fd, message.data(), message.size(), 0);
+    close(sock_fd);
 #endif
 }
 
@@ -136,7 +140,7 @@ int main(int argc, char *argv[]) {
             if (ftp_parse_status_code(response) == 150) {
                 int ds = open_tcp_connection(uri.host, data_port);
                 std::cout << readServ(ds) << std::endl;
-                closesocket(ds);
+                sock_close(ds);
                 std::cout << readServ(sock_fd) << std::endl;
             }
         } else if(command == "MLST") {
@@ -177,7 +181,7 @@ int main(int argc, char *argv[]) {
                 std::string data = readServ(ds);
                 file.write(data.data(), (int)data.size());
                 file.close();
-                closesocket(ds);
+                sock_close(ds);
                 std::cout << readServ(sock_fd) << std::endl;
             }
         } else if (command == "STOR") {
@@ -197,7 +201,7 @@ int main(int argc, char *argv[]) {
                 file.read(file_bytes.data(), file_size);
                 file.close();
                 sock_write(ds, file_bytes.data(), (int)file_size);
-                closesocket(ds);
+                sock_close(ds);
                 std::cout << readServ(sock_fd) << std::endl;
             }
         } else if(command == "DELE") {
@@ -236,7 +240,7 @@ int main(int argc, char *argv[]) {
             if (ftp_parse_status_code(response) == 150) {
                 int ds = open_tcp_connection(uri.host, data_port);
                 std::cout << readServ(ds) << std::endl;
-                closesocket(ds);
+                sock_close(ds);
                 std::cout << readServ(sock_fd) << std::endl;
             }
         } else if (command == "NOOP" || command == "NOP") {
@@ -253,7 +257,7 @@ int main(int argc, char *argv[]) {
             std::cout << "Unknown command!" << std::endl;
         }
     }
-    closesocket(sock_fd);
+    sock_close(sock_fd);
 #ifdef WIN32
     WSACleanup();
 #endif
