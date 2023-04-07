@@ -29,12 +29,13 @@ std::string read_data(int sock_fd) {
     timeout.tv_usec = 0;
 
     int rc;
-    do {
+    while(true) {
+        rc = select(0, &fdr, nullptr, nullptr, &timeout);
+        if (rc <= 0) break;
         batch.data_len = recv(sock_fd, batch.data, data_batch::BUFFER_SIZE, 0);
         if(batch.data_len <= 0) break;
         res += std::string(batch.data, batch.data_len);
-        rc = select(0, &fdr, nullptr, nullptr, &timeout);
-    } while(rc);
+    } //while(rc);
     return res;
 }
 
@@ -145,14 +146,15 @@ int main(int argc, char *argv[]) {
             std::cin >> fnop;
             long data_port = pasv(sock_fd);
             sock_fwrite(sock_fd, "%s %s\r\n", command.data(), fnop.data());
+
+            int ds = open_tcp_connection(uri.host, data_port);
             std::string response = read_data(sock_fd);
             std::cout << response << std::endl;
+
             if (ftp_parse_status_code(response) == 150) {
-                int ds = open_tcp_connection(uri.host, data_port);
                 std::cout << read_data(ds) << std::endl;
-                sock_close(ds);
-                std::cout << read_data(sock_fd) << std::endl;
             }
+            sock_close(ds);
         } else if(command == "MLST") {
             std::string fnop;
             std::cin >> fnop;
@@ -183,26 +185,29 @@ int main(int argc, char *argv[]) {
             std::string src_file, dst_file;
             std::cin >> src_file >> dst_file;
             sock_fwrite(sock_fd, "RETR %s\r\n", src_file.data());
+
+            int ds = open_tcp_connection(uri.host, data_port);
             std::string response = read_data(sock_fd);
             std::cout << response << std::endl;
+
             if (ftp_parse_status_code(response) == 150) {
-                int ds = open_tcp_connection(uri.host, data_port);
                 std::ofstream file(dst_file, std::ostream::binary);
                 std::string data = read_data(ds);
                 file.write(data.data(), (int)data.size());
                 file.close();
-                sock_close(ds);
-                std::cout << read_data(sock_fd) << std::endl;
             }
+            sock_close(ds);
         } else if (command == "STOR") {
             long data_port = pasv(sock_fd);
             std::string dst_file, src_file;
             std::cin >> dst_file >> src_file;
             sock_fwrite(sock_fd, "STOR %s\r\n", dst_file.data());
+
+            int ds = open_tcp_connection(uri.host, data_port);
             std::string response = read_data(sock_fd);
             std::cout << response << std::endl;
+
             if (ftp_parse_status_code(response) == 150) {
-                int ds = open_tcp_connection(uri.host, data_port);
                 std::ifstream file(src_file);
                 file.seekg(0, std::ios::end);
                 std::streamsize file_size = file.tellg();
@@ -211,9 +216,9 @@ int main(int argc, char *argv[]) {
                 file.read(file_bytes.data(), file_size);
                 file.close();
                 sock_write(ds, file_bytes.data(), (int)file_size);
-                sock_close(ds);
                 std::cout << read_data(sock_fd) << std::endl;
             }
+            sock_close(ds);
         } else if(command == "DELE") {
             std::string file;
             std::cin >> file;
@@ -252,7 +257,6 @@ int main(int argc, char *argv[]) {
 
             if (ftp_parse_status_code(response) == 150) {
                 std::cout << read_data(ds) << std::endl;
-                std::cout << read_data(sock_fd) << std::endl;
             }
             sock_close(ds);
         } else if (command == "NOOP" || command == "NOP") {
