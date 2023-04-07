@@ -5,6 +5,7 @@
 #include "uri/uri.hpp"
 #include <utility>
 #include <strings.h>
+#include <fstream>
 #include "open_tcp_connection/open_tcp_connection.hpp"
 
 std::string readServ(int s) {
@@ -50,10 +51,21 @@ void sock_write(int sock_fd, const char *message) {
 #endif
 }
 
-void sock_fwrite(int sock_fd, const char *format, const char *args...) {
-    int len = snprintf(nullptr, 0, format, args);
+void sock_write(int sock_fd, const char *message, int len) {
+#ifdef WIN32
+    send(sock_fd, message, len, 0);
+#else
+    write(sock_fd, message, len, 0);
+#endif
+}
+
+void sock_fwrite(int sock_fd, const char *format, ...) {
+    va_list argv;
+    va_start(argv, format);
+    int len = vsnprintf(nullptr, 0, format, argv);
     std::string message(len, 0);
-    sprintf(message.data(), format, args);
+    vsprintf(message.data(), format, argv);
+    va_end(argv);
 #ifdef WIN32
     send(sock_fd, message.data(), (int)message.size(), 0);
 #else
@@ -61,9 +73,26 @@ void sock_fwrite(int sock_fd, const char *format, const char *args...) {
 #endif
 }
 
+void auth(int sock_fd, const std::string& config_path) {
+    std::ifstream f(config_path);
+    std::string user, pass;
+    f >> user >> pass;
+    f.close();
+    sock_fwrite(sock_fd, "USER %s\r\n", user.data());
+    std::cout << readServ(sock_fd) << std::endl;
+    sock_fwrite(sock_fd, "PASS %s\r\n", pass.data());
+    std::cout << readServ(sock_fd) << std::endl;
+}
+
+int ftp_parse_status_code(const std::string &response) {
+    std::string_view view(response);
+    view = view.substr(0, view.find(' '));
+    return std::stoi(std::string(view));
+}
+
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        fprintf(stderr, "Too few arguments. Expected {uri}`\n");
+    if (argc < 3) {
+        fprintf(stderr, "Too few arguments. Expected {uri} {config_path}`\n");
         return 1;
     }
 
@@ -78,64 +107,99 @@ int main(int argc, char *argv[]) {
     WSAStartup(MAKEWORD(2, 2), &wsaData);
 #endif
 
-    // open control channel
-    int sock_fd = open_tcp_connection(uri.host, (uri.port.empty() ? 21 : stoi(uri.port)));
+    int port = (uri.port.empty() ? 21 : stoi(uri.port));
+    int sock_fd = open_tcp_connection(uri.host, port);
     std::cout << readServ(sock_fd) << std::endl;
-    // open control channel
-
-    // authorization
-    std::string name = "TestUser";
-    char str[512];
-    sprintf(str,"USER %s\r\n", name.data());
-    send(sock_fd, str, (int)strlen(str),0);
-    std::cout << readServ(sock_fd) << std::endl;
-    std::string pass = "1234";
-    sprintf(str,"PASS %s\r\n", pass.data());
-    send(sock_fd, str, (int)strlen(str),0);
-    std::cout << readServ(sock_fd) << std::endl;
-    // authorization
+    auth(sock_fd, argv[2]);
 
     while(true) {
-        std::cout << "Please, enter the command: ";
-        fflush(stdout);
+        std::cout << "Please, enter the command:" << std::endl;
         std::string command;
         std::cin >> command;
 
-        if(command == "CDUP") {
+        if(command == "RNFR") {
+            std::string file; std::cin >> file;
+            sock_fwrite(sock_fd, "RNFR %s\r\n", file.data());
+            std::cout << readServ(sock_fd) << std::endl;
+        } else if(command == "RNTO") {
+            std::string file;
+            std::cin >> file;
+            sock_fwrite(sock_fd, "RNTO %s\r\n", file.data());
+            std::cout << readServ(sock_fd) << std::endl;
+        } else if(command == "NLST") {
+            std::string fnop;
+            std::cin >> fnop;
+            int data_port = pasv(sock_fd);
+            sock_fwrite(sock_fd, "%s %s\r\n", command.data(), fnop.data());
+            std::string response = readServ(sock_fd);
+            std::cout << response << std::endl;
+            if (ftp_parse_status_code(response) == 150) {
+                int ds = open_tcp_connection(uri.host, data_port);
+                std::cout << readServ(ds) << std::endl;
+                closesocket(ds);
+                std::cout << readServ(sock_fd) << std::endl;
+            }
+        } else if(command == "MLST") {
+            std::string fnop;
+            std::cin >> fnop;
+            sock_fwrite(sock_fd, "%s %s\r\n", command.data(), fnop.data());
+            std::cout << readServ(sock_fd) << std::endl;
+        } else if(command == "CLNT") {
+            sock_write(sock_fd, "CLNT\r\n");
+            std::cout << readServ(sock_fd) << std::endl;
+        } else if(command == "FEAT") {
+            sock_write(sock_fd, "FEAT\r\n");
+            std::cout << readServ(sock_fd) << std::endl;
+        } else if(command == "STAT") {
+            sock_write(sock_fd, "STAT\r\n");
+            std::cout << readServ(sock_fd) << std::endl;
+        } else if(command == "CDUP") {
             sock_write(sock_fd, "CDUP\r\n");
             std::cout << readServ(sock_fd) << std::endl;
-        } else if(command == "CWD") {
+        } else if(command == "CWD" || command == "XCWD") {
             std::string dir;
             std::cin >> dir;
-            sock_fwrite(sock_fd, "CWD %s\r\n", dir.data());
+            sock_fwrite(sock_fd, "%s %s\r\n", command.data(), dir.data());
             std::cout << readServ(sock_fd) << std::endl;
-        } else if(command == "PWD") {
+        } else if(command == "PWD" || command == "XPWD") {
             sock_write(sock_fd, "PWD\r\n");
             std::cout << readServ(sock_fd) << std::endl;
         } else if(command == "RETR") {
             int data_port = pasv(sock_fd);
-            std::string file;
-            std::cin >> file;
-            sock_fwrite(sock_fd, "RETR %s\r\n", file.data());
-            std::cout << readServ(sock_fd) << std::endl;
-            int ds = open_tcp_connection(uri.host, data_port);
-            FILE *f = fopen(file.data(), "wb");
-            std::string data = readServ(ds);
-            fwrite(data.data(),1, data.size(), f);
-            fclose(f);
-            closesocket(ds);
-            std::cout << readServ(sock_fd) << std::endl;
+            std::string src_file, dst_file;
+            std::cin >> src_file >> dst_file;
+            sock_fwrite(sock_fd, "RETR %s\r\n", src_file.data());
+            std::string response = readServ(sock_fd);
+            std::cout << response << std::endl;
+            if (ftp_parse_status_code(response) == 150) {
+                int ds = open_tcp_connection(uri.host, data_port);
+                std::ofstream file(dst_file, std::ostream::binary);
+                std::string data = readServ(ds);
+                file.write(data.data(), (int)data.size());
+                file.close();
+                closesocket(ds);
+                std::cout << readServ(sock_fd) << std::endl;
+            }
         } else if (command == "STOR") {
-            /*int data_port = pasv(sock_fd);
-            std::string file;
-            std::cin >> file;
-            sock_fwrite(sock_fd, "STOR %s\r\n", file.data());
-            int ds = open_tcp_connection(uri.host, data_port);
-            //send
-            closesocket(ds);
-            std::cout << readServ(sock_fd) << std::endl;*/
-            // TODO
-            std::cout << "Unknown command!" << std::endl; //temporary unsupported
+            int data_port = pasv(sock_fd);
+            std::string dst_file, src_file;
+            std::cin >> dst_file >> src_file;
+            sock_fwrite(sock_fd, "STOR %s\r\n", dst_file.data());
+            std::string response = readServ(sock_fd);
+            std::cout << response << std::endl;
+            if (ftp_parse_status_code(response) == 150) {
+                int ds = open_tcp_connection(uri.host, data_port);
+                std::ifstream file(src_file);
+                file.seekg(0, std::ios::end);
+                std::streamsize file_size = file.tellg();
+                std::string file_bytes(file_size, 0);
+                file.seekg(0);
+                file.read(file_bytes.data(), file_size);
+                file.close();
+                sock_write(ds, file_bytes.data(), (int)file_size);
+                closesocket(ds);
+                std::cout << readServ(sock_fd) << std::endl;
+            }
         } else if(command == "DELE") {
             std::string file;
             std::cin >> file;
@@ -154,42 +218,29 @@ int main(int argc, char *argv[]) {
         } else if(command == "SYST") {
             sock_write(sock_fd, "SYST\r\n");
             std::cout << readServ(sock_fd) << std::endl;
-        } else if (command == "MKD") {
+        } else if (command == "MKD" || command == "XMKD") {
             std::string dir;
             std::cin >> dir;
-            sock_fwrite(sock_fd, "MKD %s\r\n", dir.data());
+            sock_fwrite(sock_fd, "%s %s\r\n", command.data(), dir.data());
             std::cout << readServ(sock_fd) << std::endl;
-        } else if(command == "RMD") {
+        } else if(command == "RMD" || command == "XRMD") {
             std::string dir;
             std::cin >> dir;
-            sock_fwrite(sock_fd, "RMD %s\r\n", dir.data());
+            sock_fwrite(sock_fd, "%s %s\r\n", command.data(), dir.data());
             std::cout << readServ(sock_fd) << std::endl;
-        } else if(command == "MLSD") {
+        } else if(command == "MLSD" || command == "LIST") {
             int data_port = pasv(sock_fd);
-            sock_write(sock_fd, "MLSD\r\n");
-            std::cout << readServ(sock_fd) << std::endl;
-            int ds = open_tcp_connection(uri.host, data_port);
-            std::cout << readServ(ds) << std::endl;
-            closesocket(ds);
-            std::cout << readServ(sock_fd) << std::endl;
-        } else if(command == "NLST") {
-            int data_port = pasv(sock_fd);
-            sock_write(sock_fd, "NLST\r\n");
-            std::cout << readServ(sock_fd) << std::endl;
-            int ds = open_tcp_connection(uri.host, data_port);
-            std::cout << readServ(ds) << std::endl;
-            closesocket(ds);
-            std::cout << readServ(sock_fd) << std::endl;
-        } else if(command == "LIST") {
-            int data_port = pasv(sock_fd);
-            sock_write(sock_fd, "LIST\r\n");
-            std::cout << readServ(sock_fd) << std::endl;
-            int ds = open_tcp_connection(uri.host, data_port);
-            std::cout << readServ(ds) << std::endl;
-            closesocket(ds);
-            std::cout << readServ(sock_fd) << std::endl;
-        } else if (command == "NOOP") {
-            sock_write(sock_fd, "NOOP\r\n");
+            sock_fwrite(sock_fd, "%s\r\n", command.data());
+            std::string response = readServ(sock_fd);
+            std::cout << response << std::endl;
+            if (ftp_parse_status_code(response) == 150) {
+                int ds = open_tcp_connection(uri.host, data_port);
+                std::cout << readServ(ds) << std::endl;
+                closesocket(ds);
+                std::cout << readServ(sock_fd) << std::endl;
+            }
+        } else if (command == "NOOP" || command == "NOP") {
+            sock_fwrite(sock_fd, "%s\r\n", command.data());
             std::cout << readServ(sock_fd) << std::endl;
         } else if (command == "HELP") {
             sock_write(sock_fd, "HELP\r\n");
