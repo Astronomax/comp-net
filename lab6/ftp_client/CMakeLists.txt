@@ -4,6 +4,7 @@ project(ftp_client)
 set(CMAKE_CXX_STANDARD 17)
 
 add_executable(ftp_client main.cpp
+        data_batch/data_batch.hpp
         open_tcp_connection/open_tcp_connection.hpp
         open_tcp_connection/open_tcp_connection.cpp
         uri/uri.hpp
