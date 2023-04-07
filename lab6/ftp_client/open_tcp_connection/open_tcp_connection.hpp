@@ -4,7 +4,7 @@
 
 #include <string>
 
-int open_tcp_connection(std::string host, int port);
+int open_tcp_connection(std::string host, long port);
 
 
 #endif //OPEN_TCP_CONNECTION_HPP

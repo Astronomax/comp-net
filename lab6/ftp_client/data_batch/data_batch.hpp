@@ -4,7 +4,7 @@
 
 struct data_batch {
     data_batch() = default;
-    static const size_t BUFFER_SIZE = 2048;
+    static const size_t BUFFER_SIZE = 512;
     char data[BUFFER_SIZE];
     ssize_t data_len;
 };

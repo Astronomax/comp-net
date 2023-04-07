@@ -2,42 +2,43 @@
 #include <winsock2.h>
 #else
 #include <sys/socket.h>
-#include <cstdlib>
-#include <cstring>
+#include <fcntl.h>
 #include <unistd.h>
 #endif
 
-#include <cstdio>
 #include <iostream>
-#include "uri/uri.hpp"
 #include <fstream>
+#include <cstdio>
 #include <cstdarg>
+#include <cstring>
+#include <cstdlib>
 
+#include "uri/uri.hpp"
 #include "data_batch/data_batch.hpp"
 #include "open_tcp_connection/open_tcp_connection.hpp"
 
 std::string read_data(int sock_fd) {
-    fd_set fdr;
-    FD_ZERO(&fdr);
-    FD_SET(sock_fd,&fdr);
-    timeval timeout{};
-    timeout.tv_sec = 1;
-    timeout.tv_usec = 0;
-
     std::string res;
     data_batch batch{};
+
+    fd_set fdr;
+    FD_ZERO(&fdr);
+    FD_SET(sock_fd, &fdr);
+    timeval timeout{};
+    timeout.tv_sec = 3;
+    timeout.tv_usec = 0;
+
     int rc;
     do {
-        std::fill(batch.data, batch.data + data_batch::BUFFER_SIZE, 0);
         batch.data_len = recv(sock_fd, batch.data, data_batch::BUFFER_SIZE, 0);
         if(batch.data_len <= 0) break;
         res += std::string(batch.data, batch.data_len);
-        rc = select(0, &fdr,nullptr,nullptr, &timeout);
+        rc = select(0, &fdr, nullptr, nullptr, &timeout);
     } while(rc);
     return res;
 }
 
-int pasv(int sock_fd) {
+long pasv(int sock_fd) {
     send(sock_fd,"PASV\r\n",(int)strlen("PASV\r\n"),0);
     std::string data = read_data(sock_fd);
     std::cout << data << std::endl;
@@ -50,8 +51,8 @@ int pasv(int sock_fd) {
     for(int i = 0; i < 3; i++) {
         strtol(pEnd + 1, &pEnd, 10);
     }
-    int a = strtol(pEnd + 1, &pEnd, 10);
-    int b = strtol(pEnd + 1, &pEnd,  10);
+    long a = strtol(pEnd + 1, &pEnd, 10);
+    long b = strtol(pEnd + 1, &pEnd, 10);
     return a * 256 + b;
 }
 
@@ -66,10 +67,15 @@ void sock_write(int sock_fd, const char *message, int len) {
 void sock_fwrite(int sock_fd, const char *format, ...) {
     va_list argv;
     va_start(argv, format);
-    int len = vsnprintf(nullptr, 0, format, argv);
-    std::string message(len, 0);
-    vsprintf(message.data(), format, argv);
     va_end(argv);
+
+    va_list a;
+    va_copy(a, argv);
+    int len = vsnprintf(nullptr, 0, format, a);
+    std::string message(len, 0);
+    va_list b;
+    va_copy(b, argv);
+    vsprintf(message.data(), format, b);
     send(sock_fd, message.data(), (int)message.size(), 0);
 }
 
@@ -137,7 +143,7 @@ int main(int argc, char *argv[]) {
         } else if(command == "NLST") {
             std::string fnop;
             std::cin >> fnop;
-            int data_port = pasv(sock_fd);
+            long data_port = pasv(sock_fd);
             sock_fwrite(sock_fd, "%s %s\r\n", command.data(), fnop.data());
             std::string response = read_data(sock_fd);
             std::cout << response << std::endl;
@@ -173,7 +179,7 @@ int main(int argc, char *argv[]) {
             sock_write(sock_fd, "PWD\r\n");
             std::cout << read_data(sock_fd) << std::endl;
         } else if(command == "RETR") {
-            int data_port = pasv(sock_fd);
+            long data_port = pasv(sock_fd);
             std::string src_file, dst_file;
             std::cin >> src_file >> dst_file;
             sock_fwrite(sock_fd, "RETR %s\r\n", src_file.data());
@@ -189,7 +195,7 @@ int main(int argc, char *argv[]) {
                 std::cout << read_data(sock_fd) << std::endl;
             }
         } else if (command == "STOR") {
-            int data_port = pasv(sock_fd);
+            long data_port = pasv(sock_fd);
             std::string dst_file, src_file;
             std::cin >> dst_file >> src_file;
             sock_fwrite(sock_fd, "STOR %s\r\n", dst_file.data());
@@ -237,16 +243,18 @@ int main(int argc, char *argv[]) {
             sock_fwrite(sock_fd, "%s %s\r\n", command.data(), dir.data());
             std::cout << read_data(sock_fd) << std::endl;
         } else if(command == "MLSD" || command == "LIST") {
-            int data_port = pasv(sock_fd);
+            long data_port = pasv(sock_fd);
             sock_fwrite(sock_fd, "%s\r\n", command.data());
+
+            int ds = open_tcp_connection(uri.host, data_port);
             std::string response = read_data(sock_fd);
             std::cout << response << std::endl;
+
             if (ftp_parse_status_code(response) == 150) {
-                int ds = open_tcp_connection(uri.host, data_port);
                 std::cout << read_data(ds) << std::endl;
-                sock_close(ds);
                 std::cout << read_data(sock_fd) << std::endl;
             }
+            sock_close(ds);
         } else if (command == "NOOP" || command == "NOP") {
             sock_fwrite(sock_fd, "%s\r\n", command.data());
             std::cout << read_data(sock_fd) << std::endl;

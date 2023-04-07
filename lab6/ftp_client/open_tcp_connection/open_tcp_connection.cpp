@@ -14,7 +14,7 @@
 #include <string>
 
 
-int open_tcp_connection(std::string hostname, int port) {
+int open_tcp_connection(std::string hostname, long port) {
     int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (sock_fd < 0) {
         fprintf(stderr, "Error occurred while opening socket\n");
