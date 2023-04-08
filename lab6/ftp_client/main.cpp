@@ -112,6 +112,16 @@ std::string read_data(int sock_fd) {
     return res;
 }
 
+int ftp_parse_status_code(const std::string &response) {
+    std::string_view view(response);
+    view = view.substr(0, 3);
+    try {
+        return std::stoi(std::string(view));
+    } catch (...) {
+        return -1;
+    }
+}
+
 long pasv(control_channel &control) {
     control.write("PASV\r\n");
     std::string data = control.read_control_data();
@@ -136,19 +146,14 @@ void auth(control_channel &control, const std::string& config_path) {
     f >> user >> pass;
     f.close();
     control.fwrite("USER %s\r\n", user.data());
-    std::cout << control.read_control_data() << std::endl;
+    std::string response;
+    do {
+        response = control.read_control_data();
+        std::cout << response;
+    } while(ftp_parse_status_code(response) == 220);
+    std::cout << std::endl;
     control.fwrite("PASS %s\r\n", pass.data());
     std::cout << control.read_control_data() << std::endl;
-}
-
-int ftp_parse_status_code(const std::string &response) {
-    std::string_view view(response);
-    view = view.substr(0, 3);
-    try {
-        return std::stoi(std::string(view));
-    } catch (...) {
-        return -1;
-    }
 }
 
 int main(int argc, char *argv[]) {
@@ -201,24 +206,44 @@ int main(int argc, char *argv[]) {
 
             if (ftp_parse_status_code(response) == 150) {
                 std::cout << read_data(ds) << std::endl;
+                sock_close(ds);
+                std::cout << control.read_control_data() << std::endl;
+            } else {
+                sock_close(ds);
             }
-            sock_close(ds);
         } else if(command == "MLST") {
             std::string fnop;
             std::cin >> fnop;
             control.fwrite("%s %s\r\n", command.data(), fnop.data());
-            std::cout << control.read_control_data() << std::endl;
+
+            std::string response = control.read_control_data();
+            std::cout << response << std::endl;
+            if (ftp_parse_status_code(response) == 250) {
+                do {
+                    response = control.read_control_data();
+                    std::cout << response;
+                } while (ftp_parse_status_code(response) != 250);
+            }
+            std::cout << std::endl;
         } else if(command == "CLNT") {
             control.fwrite("CLNT\r\n");
             std::cout << control.read_control_data() << std::endl;
         } else if(command == "FEAT") {
             control.fwrite("FEAT\r\n");
-            std::cout << control.read_control_data() << std::endl;
+            std::string response = control.read_control_data();
+            std::cout << response << std::endl;
+            if (ftp_parse_status_code(response) == 211) {
+                do {
+                    response = control.read_control_data();
+                    std::cout << response;
+                } while (ftp_parse_status_code(response) != 211);
+            }
+            std::cout << std::endl;
         } else if(command == "STAT") {
             control.fwrite("STAT\r\n");
             std::cout << control.read_control_data() << std::endl;
-        } else if(command == "CDUP") {
-            control.fwrite("CDUP\r\n");
+        } else if(command == "CDUP" || command == "XCUP") {
+            control.fwrite("%s\r\n", command.data());
             std::cout << control.read_control_data() << std::endl;
         } else if(command == "CWD" || command == "XCWD") {
             std::string dir;
@@ -243,8 +268,11 @@ int main(int argc, char *argv[]) {
                 std::string data = read_data(ds);
                 file.write(data.data(), (int)data.size());
                 file.close();
+                sock_close(ds);
+                std::cout << control.read_control_data() << std::endl;
+            } else {
+                sock_close(ds);
             }
-            sock_close(ds);
         } else if (command == "STOR") {
             long data_port = pasv(control);
             std::string dst_file, src_file;
@@ -264,9 +292,11 @@ int main(int argc, char *argv[]) {
                 file.read(file_bytes.data(), file_size);
                 file.close();
                 sock_write(ds, file_bytes.data(), (int)file_size);
+                sock_close(ds);
                 std::cout << control.read_control_data() << std::endl;
+            } else {
+                sock_close(ds);
             }
-            sock_close(ds);
         } else if(command == "DELE") {
             std::string file;
             std::cin >> file;
@@ -302,13 +332,14 @@ int main(int argc, char *argv[]) {
             int ds = open_tcp_connection(uri.host, data_port);
             std::string response = control.read_control_data();
             std::cout << response << std::endl;
-            response = control.read_control_data();
-            std::cout << response << std::endl;
 
             if (ftp_parse_status_code(response) == 150) {
                 std::cout << read_data(ds) << std::endl;
+                sock_close(ds);
+                std::cout << control.read_control_data() << std::endl;
+            } else {
+                sock_close(ds);
             }
-            sock_close(ds);
         } else if (command == "NOOP" || command == "NOP") {
             control.fwrite("%s\r\n", command.data());
             std::cout << control.read_control_data() << std::endl;
@@ -316,12 +347,12 @@ int main(int argc, char *argv[]) {
             control.fwrite("HELP\r\n");
             std::string response = control.read_control_data();
             std::cout << response;
-            int code = ftp_parse_status_code(response);
-            do {
-                response = control.read_control_data();
-                std::cout << response;
+            if (ftp_parse_status_code(response) == 214) {
+                do {
+                    response = control.read_control_data();
+                    std::cout << response;
+                } while (ftp_parse_status_code(response) != 214);
             }
-            while(ftp_parse_status_code(response) != code);
             std::cout << std::endl;
         } else if(command == "QUIT") {
             control.fwrite("QUIT\r\n");
