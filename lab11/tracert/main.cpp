@@ -23,6 +23,7 @@
 #include <cassert>
 #include <chrono>
 
+#ifdef WIN32
 struct icmphdr
 {
     uint8_t type;
@@ -31,6 +32,7 @@ struct icmphdr
     uint16_t id;
     uint16_t sequence;
 };
+#endif
 
 uint16_t checksum(const void *data, size_t len) {
     auto p = reinterpret_cast<const uint16_t*>(data);
@@ -85,7 +87,11 @@ int main(int argc, char *argv[]) {
     struct icmphdr icmp_hdr{};
     memset(&icmp_hdr, 0, sizeof icmp_hdr);
     icmp_hdr.type = 8;
-    icmp_hdr.id = 1234;
+    #ifdef WIN32
+        icmp_hdr.id = 1024;
+    #else
+        icmp_hdr.un.echo.id = 1024;
+    #endif
     uint16_t sequence = 1;
     char data[2048];
     const int MAX_HOPS_NUMBER = 30;
@@ -94,12 +100,18 @@ int main(int argc, char *argv[]) {
     for (int ttl = 1; ttl < MAX_HOPS_NUMBER; ttl++) {
         printf("%2d", ttl);
         setsockopt(sock_fd, IPPROTO_IPV6, IP_TTL, (char*)&ttl, sizeof(ttl));
+        setsockopt(sock_fd, IPPROTO_IP, IP_TTL, (char*)&ttl, sizeof(ttl));
+
         int8_t type;
         struct sockaddr_in src_addr{};
         bool response_received = false;
         for(int j = 0; j < 3; j++) {
             memset(data, 0, sizeof(icmp_hdr) + payload_size);
-            icmp_hdr.sequence = sequence++;
+            #ifdef WIN32
+                icmp_hdr.sequence = sequence++;
+            #else
+                icmp_hdr.un.echo.sequence = sequence++;
+            #endif
             icmp_hdr.checksum = 0;
             memcpy(data, &icmp_hdr, sizeof icmp_hdr); //add header
             icmp_hdr.checksum = checksum(reinterpret_cast<unsigned short*>(data), sizeof(icmp_hdr) + payload_size);
