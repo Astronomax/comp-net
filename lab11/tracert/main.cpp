@@ -105,10 +105,10 @@ int main(int argc, char *argv[]) {
     size_t payload_size = stoi(std::string(argv[2]));
     int sock_fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 
-    /*if (sock_fd < 0) {
+    if (sock_fd < 0) {
         fprintf(stderr, "Error occurred while opening socket\n");
         return 1;
-    }*/
+    }
 
     hostent *host = gethostbyname(hostname.data());
     if (host == nullptr) {
@@ -127,33 +127,17 @@ int main(int argc, char *argv[]) {
     icmp_hdr.type = 8;
     icmp_hdr.id = 1234;
 
-
     uint16_t sequence = 1;
     char data[2048];
-    //std::vector<char> data(sizeof icmp_hdr + payload_size);
-
-    //int ttl = 1;
-    //setsockopt(sock_fd, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl));
-
 
     const int MAX_HOPS_NUMBER = 50;
     for (int ttl = 1; ttl < MAX_HOPS_NUMBER; ttl++) {
-        //setsockopt(sock_fd, IPPROTO_IP, IP_TTL, reinterpret_cast<char*>(&ttl), sizeof ttl);
-
         memset(data, 0, sizeof(icmp_hdr) + payload_size);
         icmp_hdr.sequence = sequence++;
         icmp_hdr.checksum = 0;
         memcpy(data, &icmp_hdr, sizeof icmp_hdr); //add header
-        //for(int j = 0; j < sizeof(icmp_hdr) + payload_size; j++) {
-        //    printf("%x", data[j]);
-        //}
-        //printf("\n");
-        //*reinterpret_cast<int8_t*>(data + 8) = 20;
-
 
         icmp_hdr.checksum = checksum(reinterpret_cast<unsigned short*>(data), sizeof(icmp_hdr) + payload_size);
-
-        //printf("sum: %x\n", icmp_hdr.checksum);
 
         memcpy(data, &icmp_hdr, sizeof icmp_hdr); //add header
 
@@ -162,7 +146,6 @@ int main(int argc, char *argv[]) {
 
 
 
-        //ssize_t rc = sendto(sock_fd, data.data(), data.size(), 0, (struct sockaddr*)&serv_addr, sizeof serv_addr);
         ssize_t rc = sendto(sock_fd, data, sizeof(icmp_hdr) + payload_size, 0, (struct sockaddr*)&serv_addr, sizeof serv_addr);
         if (rc <= 0) {
             fprintf(stderr, "Error occurred while sending data\n");
@@ -174,7 +157,7 @@ int main(int argc, char *argv[]) {
 
 
 
-        /*
+
         fd_set read_set;
         struct timeval timeout = {2, 0};
         memset(&read_set, 0, sizeof read_set);
@@ -188,72 +171,19 @@ int main(int argc, char *argv[]) {
             break;
         }
 
-
-
-
-        //we don't care about the sender address in this example..
         socklen_t slen = 0;
-        struct icmphdr rcv_hdr{};
-            //rc = recvfrom(sock_fd, data.data(), data.size(), 0, nullptr, &slen);
-        rc = recvfrom(sock_fd, data, sizeof data, 0, nullptr, &slen);
-
+        rc = recv(sock_fd, data, sizeof data, 0);
         if (rc <= 0) {
             fprintf(stderr, "Error occurred while receiving data\n");
             break;
-        } else if (rc < sizeof rcv_hdr) {
+        } else if (rc < sizeof icmp_hdr) {
             printf("Error, got short ICMP packet, %zd bytes\n", rc);
             break;
         }
-        memcpy(&rcv_hdr, data, sizeof rcv_hdr);
-        if (rcv_hdr.type == 0) {
-            printf("%s reached in %d hops\n", hostname.c_str(), ttl);
-            break;
-        } else if (rcv_hdr.type == 11) {
-            printf("hop %d: response from %s\n", ttl, hostname.c_str());
-        } else {
-            printf("Got ICMP packet with type 0x%x ?!?\n", rcv_hdr.type);
-        }*/
-
-//        struct iphdr ip_response_header{};
-
-
-        fd_set fdr;
-        FD_ZERO(&fdr);
-        FD_SET(sock_fd, &fdr);
-        timeval timeout{};
-        timeout.tv_sec = 1;
-        timeout.tv_usec = 0;
-
-        std::string res;
-        data_batch batch{};
-        int rrc;
-        do {
-            batch.data_len = recv(sock_fd, batch.data, data_batch::BUFFER_SIZE, 0);
-            if(batch.data_len <= 0) break;
-            res += std::string(batch.data, batch.data_len);
-            rrc = select(0, &fdr, nullptr, nullptr, &timeout);
-        } while(rrc);
-
-        /*
-        struct timeval tv{};
-        tv.tv_sec = 1;
-        tv.tv_usec = 0;
-
-        setsockopt(sock_fd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<char*>(&tv), sizeof(tv));
-        setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<char*>(&tv), sizeof(tv));
-
-        auto data_length_byte = recv(sock_fd, reinterpret_cast<char*>(&data), sizeof(data), 0);
-        */
-        /*if (data_length_byte == -1) {
-            std::cout << ttl << "\033[1;35m" << " * * *" << "\033[0m" << std::endl;
-            continue;
-        }*/
-
-        auto data_length_byte = res.size();
 
         struct sockaddr_in src_addr{};
-        int8_t type = *reinterpret_cast<int8_t*>(res.data() + 20);
-        memcpy(&src_addr.sin_addr.s_addr, res.data() + 12, sizeof src_addr.sin_addr.s_addr);
+        int8_t type = *reinterpret_cast<int8_t*>(data + 20);
+        memcpy(&src_addr.sin_addr.s_addr, data + 12, sizeof src_addr.sin_addr.s_addr);
 
         std::cout << ttl << " " << "\033[1;35m" <<  inet_ntoa(src_addr.sin_addr) << "\033[0m" << std::endl;
 
